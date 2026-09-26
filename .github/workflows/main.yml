@@ -1,0 +1,50 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build (unsigned, device)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project LedgerWallet.xcodeproj \
+            -scheme Wallet \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build | tail -n 40
+
+      - name: Package Wallet.ipa
+        run: |
+          APP=$(find build/Build/Products -maxdepth 2 -name "*.app" -type d | head -n 1)
+          if [ -z "$APP" ]; then echo "No .app was produced"; exit 1; fi
+          echo "Packaging $APP"
+          test -f "$APP/www/index.html" || { echo "www/index.html missing from the app bundle"; exit 1; }
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry Wallet.ipa Payload
+          ls -lh Wallet.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Wallet-ipa
+          path: Wallet.ipa
+          if-no-files-found: error
+          retention-days: 30
